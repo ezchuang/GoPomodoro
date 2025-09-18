@@ -26,7 +26,7 @@ A fast, minimal, cross‑platform **Pomodoro timer** for your terminal — built
 
 ### Prerequisites
 
-* **Go 1.22+**
+* **Go 1.24**
 
 ### From source
 

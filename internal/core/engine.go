@@ -1,3 +1,4 @@
+// Package core implements a deadline-based Pomodoro state machine.
 package core
 
 import (
@@ -60,9 +61,11 @@ type PomodoroEngine struct {
 	cancel context.CancelFunc
 
 	// optional subscribers (e.g., TUI refresh)
-	onAdvance func(State)
+	onAdvance    func(State)
+	pausedRemain time.Duration
 }
 
+// New creates a PomodoroEngine with the given config.
 func New(cfg Config) *PomodoroEngine {
 	return &PomodoroEngine{
 		cfg:   cfg,
@@ -71,6 +74,8 @@ func New(cfg Config) *PomodoroEngine {
 	}
 }
 
+// SetOnAdvance sets a callback invoked whenever the phase changes.
+// The callback receives a snapshot State.
 func (p *PomodoroEngine) SetOnAdvance(fn func(State)) {
 	p.onAdvance = fn
 }
@@ -82,6 +87,19 @@ func (p *PomodoroEngine) State() State {
 	return p.state
 }
 
+func (p *PomodoroEngine) PhaseDuration(ph Phase) time.Duration {
+	switch ph {
+	case PhaseWork:
+		return p.cfg.Work
+	case PhaseShortBreak:
+		return p.cfg.ShortBrk
+	case PhaseLongBreak:
+		return p.cfg.LongBrk
+	default:
+		return 0
+	}
+}
+
 func (p *PomodoroEngine) Start() {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -90,6 +108,7 @@ func (p *PomodoroEngine) Start() {
 	p.state.StartedAt = now
 	p.state.EndsAt = now.Add(p.cfg.Work)
 	p.state.Paused = false
+	p.pausedRemain = 0
 	p.spawnLocked()
 }
 
@@ -99,15 +118,11 @@ func (p *PomodoroEngine) Pause() {
 	if p.state.Paused {
 		return
 	}
-	remain := time.Until(p.state.EndsAt)
-	if remain < 0 {
-		remain = 0
-	}
-	p.stopLocked()
-	// keep remaining by moving EndsAt to Now+remain after resume
+	// Freeze remain into pausedRemain
+	rem := max(time.Until(p.state.EndsAt), 0)
+	p.pausedRemain = rem
 	p.state.Paused = true
-	p.state.StartedAt = p.clock.Now()
-	p.state.EndsAt = p.state.StartedAt.Add(remain)
+	p.stopLocked()
 }
 
 func (p *PomodoroEngine) Resume() {
@@ -116,13 +131,12 @@ func (p *PomodoroEngine) Resume() {
 	if !p.state.Paused {
 		return
 	}
-	remain := time.Until(p.state.EndsAt)
-	if remain < 0 {
-		remain = 0
-	}
+	now := p.clock.Now()
+	p.state.StartedAt = now
+	p.pausedRemain = max(p.pausedRemain, 0)
+	p.state.EndsAt = now.Add(p.pausedRemain)
 	p.state.Paused = false
-	p.state.StartedAt = p.clock.Now()
-	p.state.EndsAt = p.state.StartedAt.Add(remain)
+	p.pausedRemain = 0
 	p.spawnLocked()
 }
 
@@ -133,7 +147,7 @@ func (p *PomodoroEngine) Stop() {
 	// reset to idle work phase
 	p.state = State{Phase: PhaseWork}
 	if p.onAdvance != nil {
-		p.onAdvance(p.state)
+		go p.onAdvance(p.state) // unblocked notification
 	}
 }
 
@@ -196,9 +210,9 @@ func (p *PomodoroEngine) advance() {
 func (p *PomodoroEngine) Remaining() time.Duration {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
-	rem := time.Until(p.state.EndsAt)
-	if rem < 0 {
-		return 0
+	if p.state.Paused {
+		return max(p.pausedRemain, 0)
 	}
-	return rem
+	rem := time.Until(p.state.EndsAt)
+	return max(rem, 0)
 }

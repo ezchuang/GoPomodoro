@@ -101,17 +101,7 @@ func (m *Model) View() string {
 		remain, st.PomodoroDone, st.Paused)
 
 	// progress bar based on phase duration
-	var total time.Duration
-	switch st.Phase {
-	case core.PhaseWork:
-		total = m.engine.State().EndsAt.Sub(m.engine.State().StartedAt)
-	case core.PhaseShortBreak:
-		total = m.engine.State().EndsAt.Sub(m.engine.State().StartedAt)
-	case core.PhaseLongBreak:
-		total = m.engine.State().EndsAt.Sub(m.engine.State().StartedAt)
-	default:
-		total = time.Second
-	}
+	total := m.engine.PhaseDuration(st.Phase)
 	var ratio float64
 	if total > 0 {
 		done := total - m.engine.Remaining()
