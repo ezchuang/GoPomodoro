@@ -202,6 +202,7 @@ func (p *PomodoroEngine) advance() {
 
 	if p.onAdvance != nil {
 		// notify subscriber (e.g., to trigger notification)
+		// execute outside the lock
 		go p.onAdvance(p.state)
 	}
 }
