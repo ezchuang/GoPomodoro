@@ -42,7 +42,8 @@ func NewModel(engine *core.PomodoroEngine, notifier notify.Notifier) (*Model, er
 
 func Run(m *Model) error {
 	p := tea.NewProgram(m, tea.WithAltScreen())
-	return p.Start()
+	_, err := p.Run()
+	return err
 }
 
 func (m *Model) Init() tea.Cmd {
