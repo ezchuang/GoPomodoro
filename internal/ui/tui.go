@@ -5,7 +5,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/bubbles/progress"
-	"github.com/charmbracelet/bubbletea"
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/ezchuang/GoPomodoro/internal/core"
@@ -52,6 +52,11 @@ func (m *Model) Init() tea.Cmd {
 
 type tickMsg time.Time
 
+// tickCmd returns a command that sends a tickMsg after one second.
+// It uses tea.Tick (not time.Ticker), which schedules a one-time event
+// without leaving behind a running goroutine. Each tick must be
+// explicitly rescheduled in the update loop, giving precise control
+// over timing and throttling.
 func tickCmd() tea.Cmd {
 	return tea.Tick(time.Second, func(t time.Time) tea.Msg {
 		return tickMsg(t)
@@ -74,14 +79,13 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				} else {
 					m.engine.Resume()
 				}
-			} else {
-				// already running; no-op
 			}
 		case "p":
 			m.engine.Pause()
 		case "r":
 			m.engine.Stop()
 		}
+
 	case tickMsg:
 		return m, tickCmd()
 
@@ -105,13 +109,7 @@ func (m *Model) View() string {
 	total := m.engine.PhaseDuration(st.Phase)
 	var ratio float64
 	if total > 0 {
-		done := total - m.engine.Remaining()
-		if done < 0 {
-			done = 0
-		}
-		if done > total {
-			done = total
-		}
+		done := min(max(total-m.engine.Remaining(), 0), total)
 		ratio = float64(done) / float64(total)
 	}
 
@@ -126,11 +124,4 @@ func (m *Model) View() string {
 		Render(fmt.Sprintf("%s\n\nPhase: %s\n%s\n%s\n\n%s", title, phase, info, bar, help))
 
 	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, box)
-}
-
-func max(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
 }
