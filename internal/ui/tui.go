@@ -20,7 +20,6 @@ type Model struct {
 	height int
 
 	progress progress.Model
-	ticker   *time.Ticker
 	quit     bool
 }
 
@@ -29,7 +28,6 @@ func NewModel(engine *core.PomodoroEngine, notifier notify.Notifier) (*Model, er
 		engine:   engine,
 		notifier: notifier,
 		progress: progress.New(progress.WithDefaultGradient()),
-		ticker:   time.NewTicker(time.Second),
 	}
 	// subscribe to phase changes to send notifications
 	engine.SetOnAdvance(func(st core.State) {
@@ -47,7 +45,7 @@ func Run(m *Model) error {
 }
 
 func (m *Model) Init() tea.Cmd {
-	return tea.Batch(tickCmd(), tea.EnterAltScreen)
+	return tickCmd()
 }
 
 type tickMsg time.Time
@@ -75,18 +73,22 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			st := m.engine.State()
 			if st.Paused || st.StartedAt.IsZero() {
 				if st.StartedAt.IsZero() {
+					// Idle -> Start
 					m.engine.Start()
-				} else {
+				} else if st.Paused {
+					// Paused -> Resume
 					m.engine.Resume()
 				}
 			}
 		case "p":
 			m.engine.Pause()
 		case "r":
+			// Reset/Stop to idle
 			m.engine.Stop()
 		}
 
 	case tickMsg:
+		// Schedule the next tick
 		return m, tickCmd()
 
 	case tea.WindowSizeMsg:
@@ -100,7 +102,12 @@ func (m *Model) View() string {
 	remain := m.engine.Remaining().Truncate(time.Second)
 
 	title := lipgloss.NewStyle().Bold(true).Underline(true).Render("GoPomodoro")
-	phase := lipgloss.NewStyle().Bold(true).Render(st.Phase.String())
+
+	phaseLabel := st.Phase.String()
+	if st.StartedAt.IsZero() {
+		phaseLabel = "IDLE"
+	}
+	phase := lipgloss.NewStyle().Bold(true).Render(phaseLabel)
 
 	info := fmt.Sprintf("Remaining: %s\nCompleted: %d\nPaused: %v\n",
 		remain, st.PomodoroDone, st.Paused)
