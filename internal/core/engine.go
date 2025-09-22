@@ -1,4 +1,5 @@
 // Package core implements a deadline-based Pomodoro state machine.
+// It manages work/break cycles and provides thread-safe state access.
 package core
 
 import (
@@ -7,6 +8,7 @@ import (
 	"time"
 )
 
+// Phase defines the type of a Pomodoro phase.
 type Phase int
 
 const (
@@ -28,23 +30,40 @@ func (p Phase) String() string {
 	}
 }
 
+type Timer interface {
+	C() <-chan time.Time
+	Stop() bool
+}
+
+// Clock abstracts time functions for testability.
+// A fake clock can be injected to avoid nondeterministic tests.
 type Clock interface {
 	Now() time.Time
-	After(d time.Duration) <-chan time.Time
+	NewTimer(d time.Duration) Timer
 }
 
 type realClock struct{}
 
-func (realClock) Now() time.Time                         { return time.Now() }
-func (realClock) After(d time.Duration) <-chan time.Time { return time.After(d) }
+func (realClock) Now() time.Time { return time.Now() }
+func (realClock) NewTimer(d time.Duration) Timer {
+	d = max(d, 0)
+	return &realTimer{t: time.NewTimer(d)}
+}
 
+type realTimer struct{ t *time.Timer }
+
+func (rt *realTimer) C() <-chan time.Time { return rt.t.C }
+func (rt *realTimer) Stop() bool          { return rt.t.Stop() }
+
+// Config specifies Pomodoro timings and recurrence rules.
 type Config struct {
 	Work      time.Duration
 	ShortBrk  time.Duration
 	LongBrk   time.Duration
-	LongEvery int
+	LongEvery int // long break after N work sessions
 }
 
+// State represents the current snapshot of the engine.
 type State struct {
 	Phase        Phase
 	StartedAt    time.Time
@@ -53,16 +72,19 @@ type State struct {
 	Paused       bool
 }
 
+// PomodoroEngine manages the lifecycle of Pomodoro phases.
+// It is safe for concurrent access.
 type PomodoroEngine struct {
-	mu     sync.RWMutex
-	cfg    Config
-	state  State
-	clock  Clock
-	cancel context.CancelFunc
+	mu           sync.RWMutex
+	cfg          Config
+	state        State
+	clock        Clock
+	cancel       context.CancelFunc
+	pausedRemain time.Duration
 
 	// optional subscribers (e.g., TUI refresh)
-	onAdvance    func(State)
-	pausedRemain time.Duration
+	// Invoked on every phase change
+	onAdvance func(State)
 }
 
 // New creates a PomodoroEngine with the given config.
@@ -87,7 +109,15 @@ func (p *PomodoroEngine) State() State {
 	return p.state
 }
 
+// optional subscriber invoked on every phase change.
+// For idle state (StartedAt zero), it returns 0.
 func (p *PomodoroEngine) PhaseDuration(ph Phase) time.Duration {
+	// The idle phase is always represented by a new State object.
+	// We can detect the idle phase by checking whether State.StartedAt is zero.
+	if p.state.StartedAt.IsZero() {
+		return 0
+	}
+
 	switch ph {
 	case PhaseWork:
 		return p.cfg.Work
@@ -112,6 +142,7 @@ func (p *PomodoroEngine) Start() {
 	p.spawnLocked()
 }
 
+// Pause freezes the current phase, recording remaining time.
 func (p *PomodoroEngine) Pause() {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -140,6 +171,8 @@ func (p *PomodoroEngine) Resume() {
 	p.spawnLocked()
 }
 
+// Stop cancels the current phase and resets to idle work state.
+// A snapshot notification is sent asynchronously if onAdvance is set.
 func (p *PomodoroEngine) Stop() {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -147,10 +180,12 @@ func (p *PomodoroEngine) Stop() {
 	// reset to idle work phase
 	p.state = State{Phase: PhaseWork}
 	if p.onAdvance != nil {
-		go p.onAdvance(p.state) // unblocked notification
+		go p.onAdvance(p.state)
 	}
 }
 
+// spawnLocked schedules a goroutine that waits until the current
+// phase deadline, then triggers advance(). Cancelable via stopLocked().
 func (p *PomodoroEngine) spawnLocked() {
 	if p.cancel != nil {
 		p.cancel()
@@ -158,11 +193,23 @@ func (p *PomodoroEngine) spawnLocked() {
 	ctx, cancel := context.WithCancel(context.Background())
 	p.cancel = cancel
 
-	end := p.state.EndsAt
+	d := max(time.Until(p.state.EndsAt), 0)
+	t := p.clock.NewTimer(d)
+
 	go func() {
+		// always stop & (if fired) drain the timer to free resources
+		defer func() {
+			if !t.Stop() {
+				select {
+				case <-t.C():
+				default:
+				}
+			}
+		}()
+
 		// wait until deadline with monotonic time
 		select {
-		case <-p.clock.After(time.Until(end)):
+		case <-t.C():
 			p.advance()
 		case <-ctx.Done():
 			return
@@ -170,6 +217,7 @@ func (p *PomodoroEngine) spawnLocked() {
 	}()
 }
 
+// stopLocked cancels the current deadline goroutine if any.
 func (p *PomodoroEngine) stopLocked() {
 	if p.cancel != nil {
 		p.cancel()
@@ -177,6 +225,8 @@ func (p *PomodoroEngine) stopLocked() {
 	}
 }
 
+// advance transitions the engine to the next phase based on rules.
+// It spawns a new deadline watcher and notifies subscribers.
 func (p *PomodoroEngine) advance() {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -201,8 +251,8 @@ func (p *PomodoroEngine) advance() {
 	}
 
 	if p.onAdvance != nil {
-		// notify subscriber (e.g., to trigger notification)
-		// execute outside the lock
+		// notify subscriber (e.g., UI refresh or system notification)
+		// execute outside the lock to prevent blocking
 		go p.onAdvance(p.state)
 	}
 }
