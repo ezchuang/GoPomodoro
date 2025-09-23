@@ -112,12 +112,6 @@ func (p *PomodoroEngine) State() State {
 // optional subscriber invoked on every phase change.
 // For idle state (StartedAt zero), it returns 0.
 func (p *PomodoroEngine) PhaseDuration(ph Phase) time.Duration {
-	// The idle phase is always represented by a new State object.
-	// We can detect the idle phase by checking whether State.StartedAt is zero.
-	if p.state.StartedAt.IsZero() {
-		return 0
-	}
-
 	switch ph {
 	case PhaseWork:
 		return p.cfg.Work

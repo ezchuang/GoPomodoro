@@ -114,6 +114,11 @@ func (m *Model) View() string {
 
 	// progress bar based on phase duration
 	total := m.engine.PhaseDuration(st.Phase)
+	if phaseLabel == "IDLE" {
+		// The idle phase is always represented by a new State object.
+		// We can detect the idle phase by checking whether State.StartedAt is zero.
+		total = 0
+	}
 	var ratio float64
 	if total > 0 {
 		done := min(max(total-m.engine.Remaining(), 0), total)
