@@ -35,6 +35,11 @@ type Timer interface {
 	Stop() bool
 }
 
+type realTimer struct{ t *time.Timer }
+
+func (rt *realTimer) C() <-chan time.Time { return rt.t.C }
+func (rt *realTimer) Stop() bool          { return rt.t.Stop() }
+
 // Clock abstracts time functions for testability.
 // A fake clock can be injected to avoid nondeterministic tests.
 type Clock interface {
@@ -49,11 +54,6 @@ func (realClock) NewTimer(d time.Duration) Timer {
 	d = max(d, 0)
 	return &realTimer{t: time.NewTimer(d)}
 }
-
-type realTimer struct{ t *time.Timer }
-
-func (rt *realTimer) C() <-chan time.Time { return rt.t.C }
-func (rt *realTimer) Stop() bool          { return rt.t.Stop() }
 
 // Config specifies Pomodoro timings and recurrence rules.
 type Config struct {
