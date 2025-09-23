@@ -261,3 +261,7 @@ func (p *PomodoroEngine) Remaining() time.Duration {
 	rem := time.Until(p.state.EndsAt)
 	return max(rem, 0)
 }
+
+// Compile-time interface assertions
+var _ Clock = (*realClock)(nil)
+var _ Timer = (*realTimer)(nil)
