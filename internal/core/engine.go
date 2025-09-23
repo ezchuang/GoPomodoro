@@ -82,7 +82,7 @@ type PomodoroEngine struct {
 	cancel       context.CancelFunc
 	pausedRemain time.Duration
 
-	// optional subscribers (e.g., TUI refresh)
+	// optional subscribers
 	// Invoked on every phase change
 	onAdvance func(State)
 }
@@ -173,9 +173,9 @@ func (p *PomodoroEngine) Stop() {
 	p.stopLocked()
 	// reset to idle work phase
 	p.state = State{Phase: PhaseWork}
-	if p.onAdvance != nil {
-		go p.onAdvance(p.state)
-	}
+	// if p.onAdvance != nil {
+	// 	go p.onAdvance(p.state)
+	// }
 }
 
 // spawnLocked schedules a goroutine that waits until the current
@@ -245,7 +245,7 @@ func (p *PomodoroEngine) advance() {
 	}
 
 	if p.onAdvance != nil {
-		// notify subscriber (e.g., UI refresh or system notification)
+		// notify subscriber (system notification)
 		// execute outside the lock to prevent blocking
 		go p.onAdvance(p.state)
 	}
