@@ -76,6 +76,11 @@ func newTestEngine(cfg Config) (*PomodoroEngine, *fakeClock) {
 	return eng, fc
 }
 
+// waitAdvance is used instead of directly polling eng.State().
+// Reason:
+//   - Direct polling requires time.Sleep and is racy (you may read old state).
+//   - With waitAdvance we subscribe to onAdvance and block until the engine
+//     notifies us. This makes tests deterministic and event-driven.
 func waitAdvance(t *testing.T, set func(func(State))) chan State {
 	t.Helper()
 	ch := make(chan State, 1)
