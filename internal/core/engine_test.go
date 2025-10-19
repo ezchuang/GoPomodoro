@@ -90,6 +90,58 @@ func waitAdvance(t *testing.T, set func(func(State))) chan State {
 	return ch
 }
 
+func TestPhaseString(t *testing.T) {
+	cases := []struct {
+		name  string
+		phase Phase
+		want  string
+	}{
+		{name: "work", phase: PhaseWork, want: "WORK"},
+		{name: "short break", phase: PhaseShortBreak, want: "SHORT_BREAK"},
+		{name: "long break", phase: PhaseLongBreak, want: "LONG_BREAK"},
+		{name: "unknown", phase: Phase(99), want: "UNKNOWN"},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			got := tc.phase.String()
+			if got != tc.want {
+				t.Fatalf("phase %v: want %s, got %s", tc.phase, tc.want, got)
+			}
+		})
+	}
+}
+
+func TestPhaseDuration(t *testing.T) {
+	cfg := Config{
+		Work:      25 * time.Minute,
+		ShortBrk:  5 * time.Minute,
+		LongBrk:   15 * time.Minute,
+		LongEvery: 4,
+	}
+	eng := New(cfg)
+
+	cases := []struct {
+		name  string
+		phase Phase
+		want  time.Duration
+	}{
+		{name: "work duration", phase: PhaseWork, want: cfg.Work},
+		{name: "short break duration", phase: PhaseShortBreak, want: cfg.ShortBrk},
+		{name: "long break duration", phase: PhaseLongBreak, want: cfg.LongBrk},
+		{name: "unknown duration", phase: Phase(42), want: 0},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			got := eng.PhaseDuration(tc.phase)
+			if got != tc.want {
+				t.Fatalf("phase %v: want %v, got %v", tc.phase, tc.want, got)
+			}
+		})
+	}
+}
+
 func TestStart_AdvanceToShortBreak(t *testing.T) {
 	cfg := Config{
 		Work:      1 * time.Second,
